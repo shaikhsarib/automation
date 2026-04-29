@@ -1,4 +1,4 @@
-# DealerHub Pro \u2014 Enterprise Management
+# DealerHub Pro  Enterprise Management
 
 A premium dealer management and social automation platform.
 
