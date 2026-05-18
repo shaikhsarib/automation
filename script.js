@@ -35,34 +35,60 @@ if (window.tailwind) {
 // ======================================================
 const DB_KEY = 'dealerhub_pro_data';
 
+const API_BASE = 'http://localhost:3000/api';
+
 const DB = {
-  save() {
+  async save() {
     try {
-      const data = { products, dealers, orders, transactions, nextOrderId, nextTxId, fbGroups, fbPostLog, igLikeLog, activityLog, notifications, settings };
-      localStorage.setItem(DB_KEY, JSON.stringify(data));
+      const data = { products, dealers, orders, transactions, activityLog, notifications, settings };
+      await fetch(`${API_BASE}/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
     } catch(e) { console.warn('DB save failed:', e); }
   },
-  load() {
+  async load() {
     try {
-      const raw = localStorage.getItem(DB_KEY);
-      if (!raw) return false;
-      const d = JSON.parse(raw);
-      if (d.products) products = d.products;
-      if (d.dealers) dealers = d.dealers;
-      if (d.orders) orders = d.orders;
-      if (d.transactions) transactions = d.transactions;
-      if (d.nextOrderId) nextOrderId = d.nextOrderId;
-      if (d.nextTxId) nextTxId = d.nextTxId;
-      if (d.fbGroups) fbGroups = d.fbGroups;
-      if (d.fbPostLog) fbPostLog = d.fbPostLog;
-      if (d.igLikeLog) igLikeLog = d.igLikeLog;
-      if (d.activityLog) activityLog = d.activityLog;
-      if (d.notifications) notifications = d.notifications;
-      if (d.settings) settings = d.settings;
+      const res = await fetch(`${API_BASE}/data`);
+      const d = await res.json();
+      
+      if (!d.products || d.products.length === 0) {
+        // Init defaults on backend if empty
+        const defaultData = { products, dealers, orders, transactions, fbGroups, fbPostLog, igLikeLog, activityLog, notifications, settings };
+        await fetch(`${API_BASE}/init_defaults`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(defaultData)
+        });
+        
+        const res2 = await fetch(`${API_BASE}/data`);
+        const d2 = await res2.json();
+        Object.assign(d, d2);
+      }
+
+      if (d.products && d.products.length > 0) products = d.products;
+      if (d.dealers && d.dealers.length > 0) dealers = d.dealers;
+      if (d.orders && d.orders.length > 0) orders = d.orders;
+      if (d.transactions && d.transactions.length > 0) transactions = d.transactions;
+      
+      // Compute next IDs locally since we are maintaining the bulk structure for frontend state
+      if (orders.length > 0) nextOrderId = Math.max(...orders.map(o => o.id)) + 1;
+      if (transactions.length > 0) nextTxId = Math.max(...transactions.map(t => t.id)) + 1;
+      
+      if (d.activityLog && d.activityLog.length > 0) activityLog = d.activityLog;
+      if (d.notifications && d.notifications.length > 0) notifications = d.notifications;
+      if (d.settings) settings = Object.assign(settings, d.settings);
+
       return true;
     } catch(e) { console.warn('DB load failed:', e); return false; }
   },
-  reset() { localStorage.removeItem(DB_KEY); location.reload(); },
+  async reset() { 
+    try {
+      await fetch(`${API_BASE}/reset`, { method: 'POST' });
+      location.reload(); 
+    } catch(e) { console.error('Reset failed', e); }
+  },
   exportJSON() {
     const data = { products, dealers, orders, transactions, fbGroups, fbPostLog, igLikeLog, activityLog, notifications, settings };
     const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
@@ -72,7 +98,7 @@ const DB = {
   },
   importJSON(file) {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const d = JSON.parse(e.target.result);
         if (d.products) products = d.products;
@@ -87,7 +113,7 @@ const DB = {
         if (d.settings) settings = d.settings;
         if (d.nextOrderId) nextOrderId = d.nextOrderId;
         if (d.nextTxId) nextTxId = d.nextTxId;
-        DB.save(); showToast('Data imported successfully'); renderApp();
+        await DB.save(); showToast('Data imported successfully'); renderApp();
       } catch(err) { showToast('Invalid backup file','error'); }
     };
     reader.readAsText(file);
@@ -519,8 +545,8 @@ renderApp = function(){
 // ======================================================
 // INIT
 // ======================================================
-document.addEventListener('DOMContentLoaded', () => {
-    DB.load();
+document.addEventListener('DOMContentLoaded', async () => {
+    await DB.load();
     document.addEventListener('keydown',e=>{if(e.key==='Enter'&&!STATE.currentUser)handleLogin()});
     // Close notif dropdown on outside click
     document.addEventListener('click',e=>{const dd=document.getElementById('notifDropdown');if(dd&&dd.classList.contains('open')&&!e.target.closest('.relative'))dd.classList.remove('open')});
